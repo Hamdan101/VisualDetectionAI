@@ -1,4 +1,3 @@
-
 import os, json, argparse, time, math, subprocess, platform, threading
 import numpy as np
 import cv2
@@ -7,6 +6,8 @@ import cv2
 from rfdetr import RFDETRNano   # fast; swap to RFDETRSmall / RFDETRMedium if you want
 from rfdetr.util.coco_classes import COCO_CLASSES
 
+
+VERTICAL_SNAP = False
 CALIB_FILE = "line_calibration.json"
 ALARM_FILE = "alarm.mp3"  # afplay supports mp3 or wav
 CONF_THRES = 0.35
@@ -122,9 +123,9 @@ def draw_line_overlay(frame, p1, p2, side_sign, shade_alpha=0.25):
     cv2.addWeighted(overlay, shade_alpha, frame, 1-shade_alpha, 0, dst=frame)
 
 def calibrate_line_two_clicks(cap):
-    global _clicks
+    global _clicks, VERTICAL_SNAP
     _clicks = []
-    print("Calibration: click TWO points for the line. [Q=abort]")
+    print("Calibration: click TWO points for the line. [V=vertical snap] [Q=abort]")
     while True:
         ok, frame = cap.read()
         if not ok: print("Camera read failed."); return None
@@ -147,8 +148,13 @@ def calibrate_line_two_clicks(cap):
                 ok, frame2 = cap.read()
                 if not ok: break
                 prev = frame2.copy()
-                draw_line_overlay(prev, p1, p2, side_sign, shade_alpha=0.25)
-                cv2.putText(prev, "ENTER=save, F=flip side, R=redo, Q=cancel",
+
+                # --- vertical snap preview ---
+                disp_p2 = (p1[0], p2[1]) if VERTICAL_SNAP else p2
+                draw_line_overlay(prev, p1, disp_p2, side_sign, shade_alpha=0.25)
+
+                cv2.putText(prev,
+                            f"ENTER=save, F=flip side, R=redo, V=vertical:{'ON' if VERTICAL_SNAP else 'OFF'}, Q=cancel",
                             (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
                 cv2.imshow("calibrate-line", prev)
                 k2 = cv2.waitKey(1) & 0xFF
@@ -157,11 +163,14 @@ def calibrate_line_two_clicks(cap):
                 elif k2 in (ord('r'), ord('R')):
                     _clicks = []
                     break
+                elif k2 in (ord('v'), ord('V')):
+                    VERTICAL_SNAP = not VERTICAL_SNAP
                 elif k2 in (13,):
-                    save_line(p1, p2, side_sign)
+                    # --- save with snap applied if ON ---
+                    save_line(p1, disp_p2, side_sign)
                     cv2.destroyWindow("calibrate-line")
-                    print(f"Saved {CALIB_FILE}: p1={p1}, p2={p2}, side_sign={int(side_sign)}")
-                    return (p1, p2, side_sign)
+                    print(f"Saved {CALIB_FILE}: p1={p1}, p2={disp_p2}, side_sign={int(side_sign)}, vertical_snap={VERTICAL_SNAP}")
+                    return (p1, disp_p2, side_sign)
                 elif k2 in (ord('q'), ord('Q'), 27):
                     cv2.destroyWindow("calibrate-line")
                     return None
